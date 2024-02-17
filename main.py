@@ -1,6 +1,7 @@
 import pygame
 import os
 import sys
+from random import randint
 from math import cos, sin, radians
 
 pygame.init()
@@ -54,6 +55,15 @@ class Block(pygame.sprite.Sprite):
     def update(self, stepx, stepy):
         self.rect.x += stepx
         self.rect.y += stepy
+        if pygame.sprite.spritecollide(self, player_group, False):
+            if player.dir == "left":
+                player.rect.left = self.rect.right
+            if player.dir == "right":
+                player.rect.right = self.rect.left
+            if player.dir == "top":
+                player.rect.top = self.rect.bottom
+            if player.dir == "bottom":
+                player.rect.bottom = self.rect.top
 
 
 class Spawner(pygame.sprite.Sprite):
@@ -63,10 +73,65 @@ class Spawner(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.centerx = pos[0]
         self.rect.centery = pos[1]
+        self.timer_spawn = 0
 
     def update(self, stepx, stepy):
         self.rect.x += stepx
         self.rect.y += stepy
+        if 0 < self.rect.centerx < 1200 and 0 < self.rect.centery < 800:
+            self.timer_spawn += 0.5
+            if self.timer_spawn / FPS > 1:
+                spaider = Spaider(spider_image[0], self.rect.center)
+                spaider_group.add(spaider)
+                camera_group.add(spaider)
+                self.timer_spawn = 0
+
+
+class Spaider(pygame.sprite.Sprite):
+    def __init__(self, image, pos):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = image
+        self.rect = self.image.get_rect()
+        self.rect.centerx = pos[0]
+        self.rect.centery = pos[1]
+        self.timer_move = 0
+        self.speedx = randint(-1, 1)
+        self.speedy = randint(-1, 1)
+        self.anime = True
+        self.timer_anime = 0
+        self.frame = 0
+
+    def update(self, stepx, stepy):
+        self.rect.x += stepx
+        self.rect.y += stepy
+        self.move()
+        self.collide()
+        self.animation()
+
+    def animation(self):
+        self.image = spider_image[self.frame]
+        if self.anime:
+            self.timer_anime += 1
+            if self.timer_anime / FPS > 0.1:
+                if self.frame == len(spider_image) - 1:
+                    self.frame = 0
+                else:
+                    self.frame += 1
+                self.timer_anime = 0
+
+    def move(self):
+        self.timer_move += 1
+        self.rect.centerx += self.speedx
+        self.rect.centery -= self.speedy
+        if self.timer_move / FPS > 2:
+            self.speedx = randint(-1, 1)
+            self.speedy = randint(-1, 1)
+            self.timer_move = 0
+
+    def collide(self):
+        if pygame.sprite.spritecollide(self, block_group, False):
+            self.speedy *= -1
+            self.speedx *= -1
 
 
 class Topor(pygame.sprite.Sprite):
@@ -89,9 +154,14 @@ class Topor(pygame.sprite.Sprite):
         self.rect.centerx = 150 * cos(radians(self.deg)) + player.rect.centerx
         self.rect.centery = 150 * sin(radians(self.deg)) + player.rect.centery
 
+    def death(self):
+        if pygame.sprite.spritecollide(self, spaider_group, True):
+            pass
+
     def update(self):
         self.rotate()
         self.move()
+        self.death()
 
 
 class Player(pygame.sprite.Sprite):
@@ -113,6 +183,7 @@ class Player(pygame.sprite.Sprite):
         self.speed = 5
         self.anime = False
         self.timer_anime = 0
+        self.dir = "top"
 
     def update(self):
         self.move()
@@ -128,37 +199,51 @@ class Player(pygame.sprite.Sprite):
     def move(self):
         key = pygame.key.get_pressed()
         if key[pygame.K_w]:
+            self.dir = "top"
             self.anime = True
             self.rect.y -= self.speed
             self.image = player_image_top[self.frame]
             if self.rect.top < 100:
                 camera_group.update(0, self.speed)
                 self.rect.top = 100
+                self.camera = True
             else:
                 self.camera = False
         elif key[pygame.K_a]:
+            self.dir = "left"
             self.anime = True
             self.rect.x -= self.speed
             self.image = player_image_left[self.frame]
-            if self.rect.left < 300:
+            if self.rect.left < 300 and self.pos_maps[0] < 0:
+                self.pos_maps[0] += self.speed
                 camera_group.update(self.speed, 0)
                 self.rect.left = 300
+                self.camera = True
+            else:
+                self.camera = False
         elif key[pygame.K_d]:
+            self.dir = "right"
             self.anime = True
             self.rect.x += self.speed
             self.image = player_image_right[self.frame]
-            if self.rect.right > 900:
+            if self.rect.right > 900 and self.pos_maps[0] > -6800:
+                self.pos_maps[0] -= self.speed
                 camera_group.update(-self.speed, 0)
                 self.rect.right = 900
+                self.camera = True
             else:
                 self.camera = False
         elif key[pygame.K_s]:
+            self.dir = "bottom"
             self.anime = True
             self.rect.y += self.speed
             self.image = player_image_bottom[self.frame]
             if self.rect.bottom > 700:
                 camera_group.update(0, -self.speed)
                 self.rect.bottom = 700
+                self.camera = True
+            else:
+                self.camera = False
         else:
             self.anime = False
             self.camera = False
@@ -175,7 +260,7 @@ class Player(pygame.sprite.Sprite):
 
 
 def restart():
-    global topor_group, player_group, player, ptb, water_group, block_group, spawner_group, lvlgame, camera_group
+    global topor_group, player_group, player, ptb, water_group, block_group, spawner_group, lvlgame, camera_group, dir, spaider_group
     topor_group = pygame.sprite.Group()
     player_group = pygame.sprite.Group()
     player = Player(player_image_top, (300, 400))
@@ -184,18 +269,22 @@ def restart():
     block_group = pygame.sprite.Group()
     spawner_group = pygame.sprite.Group()
     camera_group = pygame.sprite.Group()
+    spaider_group = pygame.sprite.Group()
 
 
 def lvl_game():
     sc.fill('gray')
+    if not player.camera:
+        block_group.update(0, 0)
+        spawner_group.update(0, 0)
+        spaider_group.update(0, 0)
     player_group.update()
     player_group.draw(sc)
-    block_group.update(0, 0)
     block_group.draw(sc)
-    spawner_group.update(0, 0)
     spawner_group.draw(sc)
     topor_group.update()
     topor_group.draw(sc)
+    spaider_group.draw(sc)
     pygame.display.update()
 
 
